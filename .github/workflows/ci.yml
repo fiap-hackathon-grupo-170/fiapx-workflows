@@ -35,7 +35,7 @@ jobs:
         id: jacoco
         continue-on-error: true
         run: |
-          mvn -B jacoco:check -Djacoco.failOnViolation=true
+          mvn -B jacoco:check
           echo "exit_code=$?" >> $GITHUB_OUTPUT
 
       - name: SonarCloud Analysis

@@ -48,6 +48,7 @@ jobs:
             -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
 
       - name: Validate New Coverage (80% for PR)
+        shell: bash
         if: github.event_name == 'pull_request'
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -86,6 +87,7 @@ jobs:
           fi
 
       - name: Post JaCoCo Coverage
+        shell: bash
         if: always()
         run: |
           if [ "${{ steps.jacoco.outputs.exit_code }}" != "0" ]; then

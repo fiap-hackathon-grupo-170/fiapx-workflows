@@ -81,11 +81,11 @@ jobs:
           Write-Host "🎯 Mínimo: $MIN_COVERAGE%"
 
           if ($coverage -ge $MIN_COVERAGE) {
-              Write-Host "✅ Coverage OK ($coverage% >= $MIN_COVERAGE%)"
+              Write-Host "Coverage OK (${coverage}% >= ${MIN_COVERAGE}%)"
               exit 0
           }
           else {
-              Write-Host "❌ Coverage insuficiente ($coverage% < $MIN_COVERAGE%)"
+              Write-Host "Coverage insuficiente (${coverage}% < ${MIN_COVERAGE}%)"
               exit 1
           }
 

@@ -57,7 +57,7 @@ jobs:
           $PR_NUMBER = "${{ github.event.pull_request.number }}"
           $MIN_COVERAGE = 80
 
-          Write-Host "🔍 Verificando coverage do PR #$PR_NUMBER..."
+          Write-Host "Verificando coverage do PR #$PR_NUMBER..."
           Start-Sleep -Seconds 10
 
           $url = "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ vars.SONAR_PROJECT_KEY }}&pullRequest=$PR_NUMBER"
@@ -71,21 +71,23 @@ jobs:
             Select-Object -ExpandProperty actualValue
 
           if (-not $newCoverage -or $newCoverage -eq "null") {
-              Write-Host "⚠️ Métrica 'new_coverage' não disponível - ignorando validação"
+              Write-Host "Métrica 'new_coverage' não disponível - ignorando validação"
               exit 0
           }
 
           $coverage = [double]$newCoverage
 
-          Write-Host "📊 New Coverage: $coverage%"
-          Write-Host "🎯 Mínimo: $MIN_COVERAGE%"
+          Write-Host "New Coverage: $coverage%"
+          Write-Host "Mínimo: $MIN_COVERAGE%"
 
           if ($coverage -ge $MIN_COVERAGE) {
-              Write-Host "Coverage OK (${coverage}% >= ${MIN_COVERAGE}%)"
+              $msg = "Coverage OK ({0}% >= {1}%)" -f $coverage, $MIN_COVERAGE
+              Write-Host $msg
               exit 0
           }
           else {
-              Write-Host "Coverage insuficiente (${coverage}% < ${MIN_COVERAGE}%)"
+              $msg = "Coverage insuficiente ({0}% < {1}%)" -f $coverage, $MIN_COVERAGE
+              Write-Host $msg
               exit 1
           }
 
@@ -93,9 +95,9 @@ jobs:
         if: always()
         run: |
           if ("${{ steps.jacoco.outputs.exit_code }}" -ne "0") {
-              Write-Host "❌ Coverage mínimo NÃO atingido"
+              Write-Host "Coverage mínimo NÃO atingido"
               exit 1
           }
           else {
-              Write-Host "✅ Coverage mínimo atingido"
+              Write-Host "Coverage mínimo atingido"
           }

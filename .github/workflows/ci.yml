@@ -15,6 +15,7 @@ jobs:
   quality:
     name: Quality Analysis
     runs-on: self-hosted
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,69 +33,70 @@ jobs:
         run: mvn -B clean verify
 
       - name: JaCoCo Coverage (min 80%)
-        shell: bash
         id: jacoco
         continue-on-error: true
         run: |
           mvn -B jacoco:check
-          echo "exit_code=$?" >> $GITHUB_OUTPUT
+          $exitCode = $LASTEXITCODE
+          "exit_code=$exitCode" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: SonarCloud Analysis
-        shell: bash
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-            -Dsonar.host.url=${{ vars.SONAR_HOST_URL }} \
-            -Dsonar.organization=${{ vars.SONAR_ORG_KEY }} \
-            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar `
+            -Dsonar.host.url=${{ vars.SONAR_HOST_URL }} `
+            -Dsonar.organization=${{ vars.SONAR_ORG_KEY }} `
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }} `
+            -Dsonar.login=$env:SONAR_TOKEN
 
       - name: Validate New Coverage (80% for PR)
-        shell: bash
         if: github.event_name == 'pull_request'
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          MIN_COVERAGE=80
+          $PR_NUMBER = "${{ github.event.pull_request.number }}"
+          $MIN_COVERAGE = 80
 
-          echo "🔍 Verificando coverage do PR #$PR_NUMBER..."
-          sleep 10
+          Write-Host "🔍 Verificando coverage do PR #$PR_NUMBER..."
+          Start-Sleep -Seconds 10
 
-          RESPONSE=$(curl -s -u "$SONAR_TOKEN:" \
-            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ vars.SONAR_PROJECT_KEY }}&pullRequest=$PR_NUMBER")
+          $url = "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ vars.SONAR_PROJECT_KEY }}&pullRequest=$PR_NUMBER"
 
-          NEW_COVERAGE=$(echo "$RESPONSE" | jq -r '
-            .projectStatus.conditions[] 
-            | select(.metricKey == "new_coverage") 
-            | .actualValue
-          ')
+          $response = Invoke-RestMethod `
+            -Uri $url `
+            -Headers @{ Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$($env:SONAR_TOKEN):")) }
 
-          if [ -z "$NEW_COVERAGE" ] || [ "$NEW_COVERAGE" = "null" ]; then
-            echo "⚠️  Métrica 'new_coverage' não disponível - ignorando validação"
-            exit 0
-          fi
+          $newCoverage = $response.projectStatus.conditions |
+            Where-Object { $_.metricKey -eq "new_coverage" } |
+            Select-Object -ExpandProperty actualValue
 
-          COVERAGE=$(printf "%.2f" "$NEW_COVERAGE")
+          if (-not $newCoverage -or $newCoverage -eq "null") {
+              Write-Host "⚠️ Métrica 'new_coverage' não disponível - ignorando validação"
+              exit 0
+          }
 
-          echo "📊 New Coverage: $COVERAGE%"
-          echo "🎯 Mínimo: $MIN_COVERAGE%"
+          $coverage = [double]$newCoverage
 
-          if (( $(echo "$COVERAGE >= $MIN_COVERAGE" | bc -l) )); then
-            echo "✅ Coverage OK ($COVERAGE% >= $MIN_COVERAGE%)"
-            exit 0
-          else
-            echo "❌ Coverage insuficiente ($COVERAGE% < $MIN_COVERAGE%)"
-            exit 1
-          fi
+          Write-Host "📊 New Coverage: $coverage%"
+          Write-Host "🎯 Mínimo: $MIN_COVERAGE%"
+
+          if ($coverage -ge $MIN_COVERAGE) {
+              Write-Host "✅ Coverage OK ($coverage% >= $MIN_COVERAGE%)"
+              exit 0
+          }
+          else {
+              Write-Host "❌ Coverage insuficiente ($coverage% < $MIN_COVERAGE%)"
+              exit 1
+          }
 
       - name: Post JaCoCo Coverage
-        shell: bash
         if: always()
         run: |
-          if [ "${{ steps.jacoco.outputs.exit_code }}" != "0" ]; then
-            echo "❌ Coverage mínimo NÃO atingido"
-            exit 1
-          else
-            echo "✅ Coverage mínimo atingido"
-          fi
+          if ("${{ steps.jacoco.outputs.exit_code }}" -ne "0") {
+              Write-Host "❌ Coverage mínimo NÃO atingido"
+              exit 1
+          }
+          else {
+              Write-Host "✅ Coverage mínimo atingido"
+          }

@@ -32,6 +32,7 @@ jobs:
         run: mvn -B clean verify
 
       - name: JaCoCo Coverage (min 80%)
+        shell: bash
         id: jacoco
         continue-on-error: true
         run: |
@@ -39,6 +40,7 @@ jobs:
           echo "exit_code=$?" >> $GITHUB_OUTPUT
 
       - name: SonarCloud Analysis
+        shell: bash
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |

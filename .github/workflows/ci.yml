@@ -43,11 +43,11 @@ jobs:
       - name: SonarCloud Analysis
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: >
-          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
-          -Dsonar.host.url=${{ vars.SONAR_HOST_URL }}
-          -Dsonar.organization=${{ vars.SONAR_ORG_KEY }}
-          -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+        run: |
+          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar `
+            "-Dsonar.host.url=${{ vars.SONAR_HOST_URL }}" `
+            "-Dsonar.organization=${{ vars.SONAR_ORG_KEY }}" `
+            "-Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}"
 
       - name: Validate New Coverage (80% for PR)
         if: github.event_name == 'pull_request'

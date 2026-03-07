@@ -41,11 +41,18 @@ jobs:
             exit 1
           fi
 
-      # - name: Vet code
-      #   run: go vet ./...
+      - name: Vet code
+        run: go vet ./...
 
       - name: Run tests
-        run: go test ./... -v -cover
+        run: go test ./internal/... -v -cover -coverprofile=coverage.out
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-video-service
+          path: coverage.out
 
       - name: Build
         run: go build ./...

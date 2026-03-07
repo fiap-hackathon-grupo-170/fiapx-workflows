@@ -45,7 +45,7 @@ jobs:
         run: go vet ./...
 
       - name: Run tests
-        run: go test ./internal/... -v -cover -coverprofile=coverage.out
+        run: go test ./... -v -cover -coverprofile=coverage.out -coverpkg=./...
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

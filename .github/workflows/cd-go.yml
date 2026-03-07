@@ -17,7 +17,7 @@ on:
         required: true
       AWS_DEFAULT_REGION:
         required: true
-    
+
 jobs:
   deploy:
     name: Build & Deploy
@@ -49,9 +49,20 @@ jobs:
             ${{ steps.login-ecr.outputs.registry }}/${{ inputs.project-name }}:latest
             ${{ steps.login-ecr.outputs.registry }}/${{ inputs.project-name }}:${{ github.sha }}
 
+      - name: Get EC2 instance ID
+        id: ec2
+        run: |
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters \
+              "Name=tag:Name,Values=fiapx-hackathon-170-app" \
+              "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text)
+          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+
       - name: Deploy via SSM
         run: |
           aws ssm send-command \
-            --instance-ids "${{ vars.EC2_INSTANCE_ID }}" \
+            --instance-ids "${{ steps.ec2.outputs.instance_id }}" \
             --document-name "AWS-RunShellScript" \
             --parameters commands='["cd /opt/fiapx && docker compose pull ${{ inputs.imagem-name }} && docker compose up -d ${{ inputs.imagem-name }}"]'

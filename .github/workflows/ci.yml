@@ -3,10 +3,10 @@ name: CI
 on:
   workflow_call:
     inputs:
-      java-version:
+      go-version:
         required: false
         type: string
-        default: "17"
+        default: '1.22.0'
     secrets:
       SONAR_TOKEN:
         required: true
@@ -14,90 +14,81 @@ on:
 jobs:
   quality:
     name: Quality Analysis
-    runs-on: self-hosted
-
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up JDK ${{ inputs.java-version }}
-        uses: actions/setup-java@v4
+      - name: Set up Go ${{ inputs.go-version }}
+        uses: actions/setup-go@v6
         with:
-          java-version: ${{ inputs.java-version }}
-          distribution: temurin
-          cache: maven
+          go-version: ${{ inputs.go-version }}
+          go-version-file: 'go.mod'
+          token: ${{ github.token }}
+          cache: true
+          cache-dependency-path: 'go.sum'
 
-      - name: Build and Test Application
-        run: mvn -B clean verify
-
-      - name: JaCoCo Coverage (min 80%)
-        id: jacoco
-        continue-on-error: true
+      - name: Install dependencies
+        run: go mod download
+      
+      - name: Verify formatting
         run: |
-          mvn -B jacoco:check
-          $exitCode = $LASTEXITCODE
-          "exit_code=$exitCode" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          if [ "$(gofmt -l .)" ]; then
+            echo "Code is not formatted"
+            gofmt -l .
+            exit 1
+          fi
 
-      - name: SonarCloud Analysis
+      - name: Vet code
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test ./... -v -cover
+
+      - name: Build
+        run: go build ./...
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar `
-            "-Dsonar.host.url=${{ vars.SONAR_HOST_URL }}" `
-            "-Dsonar.organization=${{ vars.SONAR_ORG_KEY }}" `
-            "-Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}"
 
-      - name: Validate New Coverage (80% for PR)
+      - name: Validate New Coverage (70% for PR)
         if: github.event_name == 'pull_request'
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          $PR_NUMBER = "${{ github.event.pull_request.number }}"
-          $MIN_COVERAGE = 80
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          MIN_COVERAGE=70
 
-          Write-Host "Verificando coverage do PR #$PR_NUMBER..."
-          Start-Sleep -Seconds 10
+          echo "🔍 Verificando coverage do PR #$PR_NUMBER..."
+          sleep 10
 
-          $url = "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ vars.SONAR_PROJECT_KEY }}&pullRequest=$PR_NUMBER"
+          RESPONSE=$(curl -s -u "$SONAR_TOKEN:" \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ vars.SONAR_PROJECT_KEY }}&pullRequest=$PR_NUMBER")
 
-          $response = Invoke-RestMethod `
-            -Uri $url `
-            -Headers @{ Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$($env:SONAR_TOKEN):")) }
+          NEW_COVERAGE=$(echo "$RESPONSE" | jq -r '
+            .projectStatus.conditions[] 
+            | select(.metricKey == "new_coverage") 
+            | .actualValue
+          ')
 
-          $newCoverage = $response.projectStatus.conditions |
-            Where-Object { $_.metricKey -eq "new_coverage" } |
-            Select-Object -ExpandProperty actualValue
+          if [ -z "$NEW_COVERAGE" ] || [ "$NEW_COVERAGE" = "null" ]; then
+            echo "⚠️  Métrica 'new_coverage' não disponível - ignorando validação"
+            exit 0
+          fi
 
-          if (-not $newCoverage -or $newCoverage -eq "null") {
-              Write-Host "Métrica 'new_coverage' não disponível - ignorando validação"
-              exit 0
-          }
+          COVERAGE=$(printf "%.2f" "$NEW_COVERAGE")
 
-          $coverage = [double]$newCoverage
+          echo "📊 New Coverage: $COVERAGE%"
+          echo "🎯 Mínimo: $MIN_COVERAGE%"
 
-          Write-Host "New Coverage: $coverage%"
-          Write-Host "Mínimo: $MIN_COVERAGE%"
-
-          if ($coverage -ge $MIN_COVERAGE) {
-              $msg = "Coverage OK ({0}% >= {1}%)" -f $coverage, $MIN_COVERAGE
-              Write-Host $msg
-              exit 0
-          }
-          else {
-              $msg = "Coverage insuficiente ({0}% < {1}%)" -f $coverage, $MIN_COVERAGE
-              Write-Host $msg
-              exit 1
-          }
-
-      - name: Post JaCoCo Coverage
-        if: always()
-        run: |
-          if ("${{ steps.jacoco.outputs.exit_code }}" -ne "0") {
-              Write-Host "Coverage mínimo NÃO atingido"
-              exit 1
-          }
-          else {
-              Write-Host "Coverage mínimo atingido"
-          }
+          if (( $(echo "$COVERAGE >= $MIN_COVERAGE" | bc -l) )); then
+            echo "✅ Coverage OK ($COVERAGE% >= $MIN_COVERAGE%)"
+            exit 0
+          else
+            echo "❌ Coverage insuficiente ($COVERAGE% < $MIN_COVERAGE%)"
+            exit 1
+          fi

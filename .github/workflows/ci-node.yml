@@ -60,4 +60,45 @@ jobs:
           path: dist/
           retention-days: 7
 
+      - name: Sonar Cloud Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
+      - name: Validate New Coverage (70% for PR)
+        if: github.event_name == 'pull_request'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          MIN_COVERAGE=70
+
+          echo "🔍 Verificando coverage do PR #$PR_NUMBER..."
+          sleep 10
+
+          RESPONSE=$(curl -s -u "$SONAR_TOKEN:" \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ vars.SONAR_PROJECT_KEY }}&pullRequest=$PR_NUMBER")
+
+          NEW_COVERAGE=$(echo "$RESPONSE" | jq -r '
+            .projectStatus.conditions[] 
+            | select(.metricKey == "new_coverage") 
+            | .actualValue
+          ')
+
+          if [ -z "$NEW_COVERAGE" ] || [ "$NEW_COVERAGE" = "null" ]; then
+            echo "⚠️  Métrica 'new_coverage' não disponível - ignorando validação"
+            exit 0
+          fi
+
+          COVERAGE=$(printf "%.2f" "$NEW_COVERAGE")
+
+          echo "📊 New Coverage: $COVERAGE%"
+          echo "🎯 Mínimo: $MIN_COVERAGE%"
+
+          if (( $(echo "$COVERAGE >= $MIN_COVERAGE" | bc -l) )); then
+            echo "✅ Coverage OK ($COVERAGE% >= $MIN_COVERAGE%)"
+            exit 0
+          else
+            echo "❌ Coverage insuficiente ($COVERAGE% < $MIN_COVERAGE%)"
+            exit 1
+          fi

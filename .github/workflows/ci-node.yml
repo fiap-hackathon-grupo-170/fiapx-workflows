@@ -53,6 +53,9 @@ jobs:
       - name: Build project (Vite)
         run: npm run build
 
+      - name: Run converage
+        run: npm run test:coverage
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -102,3 +105,4 @@ jobs:
             echo "❌ Coverage insuficiente ($COVERAGE% < $MIN_COVERAGE%)"
             exit 1
           fi
+

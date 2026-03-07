@@ -1,0 +1,70 @@
+name: CD - Node
+on:
+  workflow_call:
+    inputs:
+      project-name:
+        required: true
+        type: string
+      imagem-name:
+        required: true
+        type: string
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_SESSION_TOKEN:
+        required: true
+      AWS_DEFAULT_REGION:
+        required: true
+      VITE_API_URL:
+        required: true
+      VITE_KEYCLOAK_URL:
+        required: true
+      VITE_KEYCLOAK_REALM:
+        required: true
+      VITE_KEYCLOAK_CLIENT_ID:
+        required: true
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          build-args: |
+            VITE_API_URL=${{ secrets.VITE_API_URL }}
+            VITE_KEYCLOAK_URL=${{ secrets.VITE_KEYCLOAK_URL }}
+            VITE_KEYCLOAK_REALM=${{ secrets.VITE_KEYCLOAK_REALM }}
+            VITE_KEYCLOAK_CLIENT_ID=${{ secrets.VITE_KEYCLOAK_CLIENT_ID }}
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ inputs.project-name }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ inputs.project-name }}:${{ github.sha }}
+
+      - name: Deploy via SSM
+        run: |
+          aws ssm send-command \
+            --instance-ids "${{ vars.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters commands='["cd /opt/fiapx && docker compose pull ${{ inputs.imagem-name }} && docker compose up -d ${{ inputs.imagem-name }}"]'

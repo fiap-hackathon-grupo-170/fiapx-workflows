@@ -65,6 +65,8 @@ jobs:
 
       - name: Sonar Cloud Scan
         uses: SonarSource/sonarqube-scan-action@v6
+        with:
+          fetch-depth: 0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
@@ -105,4 +107,5 @@ jobs:
             echo "❌ Coverage insuficiente ($COVERAGE% < $MIN_COVERAGE%)"
             exit 1
           fi
+
 

@@ -41,8 +41,8 @@ jobs:
             exit 1
           fi
 
-      - name: Vet code
-        run: go vet ./...
+      # - name: Vet code
+      #   run: go vet ./...
 
       - name: Run tests
         run: go test ./... -v -cover

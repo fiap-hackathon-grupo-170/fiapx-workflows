@@ -1,17 +1,43 @@
-name: CD
+name: CD - Node
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      project-name:
+        description: "ECR repository path (ex: fiapx-hackathon-170/frontend)"
+        required: true
+        type: string
+      imagem-name:
+        description: "Container name no docker-compose (ex: frontend)"
+        required: true
+        type: string
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_SESSION_TOKEN:
+        required: true
+      AWS_DEFAULT_REGION:
+        required: true
+      EC2_INSTANCE_ID:
+        required: true
+      VITE_API_URL:
+        required: true
+      VITE_KEYCLOAK_URL:
+        required: true
+      VITE_KEYCLOAK_REALM:
+        required: true
+      VITE_KEYCLOAK_CLIENT_ID:
+        required: true
 
 jobs:
-  deploy:
-    name: Deploy Infrastructure
+  build-and-deploy:
+    name: Build, Push & Deploy
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
@@ -22,76 +48,66 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
 
-      - name: Get EC2 instance ID
-        id: ec2
-        run: |
-          INSTANCE_ID=$(aws ec2 describe-instances \
-            --filters \
-              "Name=tag:Name,Values=fiapx-hackathon-170-app" \
-              "Name=instance-state-name,Values=running" \
-            --query "Reservations[0].Instances[0].InstanceId" \
-            --output text)
-          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
-          echo "EC2 Instance: $INSTANCE_ID"
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build SSM parameters file
+      - name: Build and push Docker image
         env:
-          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          ECR_REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com"
+          IMAGE_URI="${ECR_REGISTRY}/${{ inputs.project-name }}"
 
-          cat > /tmp/ssm-params.json << EOF
-          {
-            "commands": [
-              "set -e",
-              "sudo mkdir -p /opt/fiapx",
-              "sudo chown -R ec2-user:ec2-user /opt/fiapx",
-              "cd /opt/fiapx",
-              "if [ ! -d .git ]; then git clone https://github.com/${{ github.repository }}.git . ; fi",
-              "git fetch --all",
-              "git reset --hard origin/main",
-              "PUBLIC_IP=\$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)",
-              "echo \"ECR_REGISTRY=${ECR_REGISTRY}\" > .env",
-              "echo \"PUBLIC_IP=\$PUBLIC_IP\" >> .env",
-              "aws ecr get-login-password --region ${{ secrets.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${ECR_REGISTRY}",
-              "docker compose pull video-service processing-service frontend 2>/dev/null || true",
-              "docker compose up -d --remove-orphans",
-              "docker system prune -f",
-              "echo 'Deploy completed at '$(date)"
-            ]
-          }
-          EOF
+          docker build \
+            --build-arg VITE_API_URL=${{ secrets.VITE_API_URL }} \
+            --build-arg VITE_KEYCLOAK_URL=${{ secrets.VITE_KEYCLOAK_URL }} \
+            --build-arg VITE_KEYCLOAK_REALM=${{ secrets.VITE_KEYCLOAK_REALM }} \
+            --build-arg VITE_KEYCLOAK_CLIENT_ID=${{ secrets.VITE_KEYCLOAK_CLIENT_ID }} \
+            -t "${IMAGE_URI}:${IMAGE_TAG}" \
+            -t "${IMAGE_URI}:latest" .
+
+          docker push "${IMAGE_URI}:${IMAGE_TAG}"
+          docker push "${IMAGE_URI}:latest"
+
+          echo "Pushed: ${IMAGE_URI}:latest"
 
       - name: Deploy via SSM
         id: ssm
         run: |
           COMMAND_ID=$(aws ssm send-command \
-            --instance-ids "${{ steps.ec2.outputs.instance_id }}" \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
-            --parameters file:///tmp/ssm-params.json \
+            --parameters commands="[
+              \"set -e\",
+              \"cd /opt/fiapx\",
+              \"aws ecr get-login-password --region ${{ secrets.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}\",
+              \"docker compose pull ${{ inputs.imagem-name }}\",
+              \"docker compose up -d --no-deps ${{ inputs.imagem-name }}\",
+              \"docker system prune -f\",
+              \"echo 'Deployed ${{ inputs.imagem-name }} at '$(date)\"
+            ]" \
             --query "Command.CommandId" \
             --output text)
 
-          echo "SSM Command ID: $COMMAND_ID"
           echo "command_id=$COMMAND_ID" >> $GITHUB_OUTPUT
+          echo "SSM Command ID: $COMMAND_ID"
 
-          # Aguarda execução (timeout 5min)
           aws ssm wait command-executed \
             --command-id "$COMMAND_ID" \
-            --instance-id "${{ steps.ec2.outputs.instance_id }}" || true
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" || true
 
       - name: Show deploy output
         run: |
           aws ssm get-command-invocation \
             --command-id "${{ steps.ssm.outputs.command_id }}" \
-            --instance-id "${{ steps.ec2.outputs.instance_id }}" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
             --query "StandardOutputContent" \
             --output text
 
           STATUS=$(aws ssm get-command-invocation \
             --command-id "${{ steps.ssm.outputs.command_id }}" \
-            --instance-id "${{ steps.ec2.outputs.instance_id }}" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
             --query "Status" \
             --output text)
 

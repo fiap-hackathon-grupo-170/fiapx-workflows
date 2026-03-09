@@ -68,7 +68,7 @@ jobs:
             --parameters commands="[
               \"set -e\",
               \"cd /opt/fiapx\",
-              \"aws ecr get-login-password --region ${{ secrets.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}\",
+              \"aws ecr get-login-password --region ${{ secrets.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}\",
               \"docker compose pull ${{ inputs.imagem-name }}\",
               \"docker compose up -d --no-deps ${{ inputs.imagem-name }}\",
               \"docker system prune -f\",
@@ -100,3 +100,4 @@ jobs:
 
           echo "Deploy status: $STATUS"
           [ "$STATUS" = "Success" ] || exit 1
+

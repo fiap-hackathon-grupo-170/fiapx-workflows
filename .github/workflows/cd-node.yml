@@ -60,6 +60,7 @@ jobs:
           IMAGE_URI="${ECR_REGISTRY}/${{ inputs.project-name }}"
 
           docker build \
+            --no-cache \
             --build-arg VITE_API_URL=${{ secrets.VITE_API_URL }} \
             --build-arg VITE_KEYCLOAK_URL=${{ secrets.VITE_KEYCLOAK_URL }} \
             --build-arg VITE_KEYCLOAK_REALM=${{ secrets.VITE_KEYCLOAK_REALM }} \
@@ -83,7 +84,7 @@ jobs:
               \"cd /opt/fiapx\",
               \"aws ecr get-login-password --region ${{ secrets.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}\",
               \"docker compose pull ${{ inputs.imagem-name }}\",
-              \"docker compose up -d --no-deps ${{ inputs.imagem-name }}\",
+              \"docker compose up -d --no-deps --force-recreate ${{ inputs.imagem-name }}\",
               \"docker system prune -f\",
               \"echo 'Deployed ${{ inputs.imagem-name }} at '$(date)\"
             ]" \
